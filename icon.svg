@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="Context compressor">
+  <defs>
+    <linearGradient id="cc-g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4D6BFE"/>
+      <stop offset="1" stop-color="#2B45C7"/>
+    </linearGradient>
+  </defs>
+  <rect x="1.5" y="1.5" width="29" height="29" rx="7.5" fill="url(#cc-g)"/>
+  <!-- a context bar squeezed between a hard ceiling and a retained tail -->
+  <rect x="6" y="7.5" width="20" height="2.5" rx="1.25" fill="#fff" opacity=".95"/>
+  <rect x="6" y="13" width="13" height="2.5" rx="1.25" fill="#fff" opacity=".55"/>
+  <rect x="6" y="18.5" width="20" height="2.5" rx="1.25" fill="#fff" opacity=".55"/>
+  <rect x="6" y="24" width="8" height="2.5" rx="1.25" fill="#fff" opacity=".95"/>
+  <path d="M19.5 12.2 24 14.25l-4.5 2.05z" fill="#fff"/>
+</svg>

@@ -1,0 +1,9 @@
+# A JavaScript package: normalize every text file to LF so a Windows checkout
+# and a Linux CI run produce byte-identical diffs.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary

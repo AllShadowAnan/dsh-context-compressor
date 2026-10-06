@@ -1,0 +1,58 @@
+{
+  "name": "dsh-context-compressor",
+  "version": "1.0.0",
+  "description": "User-set absolute context ceiling for DeepSeek Harness: when a session's estimated context reaches the configured token limit, the harness automatically compacts the conversation. Ships a dedicated settings page (host half + browser half).",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/",
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "icon": "./icon.svg",
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "compaction",
+    "context-window",
+    "token-limit",
+    "settings"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4"
+  },
+  "scripts": {
+    "test": "node --test test/host.test.mjs test/settings-projection.test.mjs test/client.test.mjs"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24"
+  },
+  "devDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

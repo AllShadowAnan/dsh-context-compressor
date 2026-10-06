@@ -1,0 +1,30 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Three suites: the host policy against fakes, the browser bundle rendered
+      # with real React, and a conformance suite that runs DeepSeek Harness's own
+      # settings projection against this plugin's Config. The last one needs an
+      # extracted application tree and skips itself when DSH_REFERENCE_ASAR is
+      # unset, which is why CI needs no Harness install.
+      - run: pnpm test

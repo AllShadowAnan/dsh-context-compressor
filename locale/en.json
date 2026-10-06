@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Context compression",
+    "description": "Set an absolute context ceiling per session; the harness compacts automatically once it is reached."
+  }
+}

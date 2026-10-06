@@ -1,0 +1,16 @@
+# Applied by the profile composer (dsh.bundle.patch) when this package is
+# added to a profile.
+#
+# `id` is the settings namespace this plugin's page edits (the profile patch
+# row id), `name` is the package the row mounts. The `config` block seeds the
+# defaults the Settings page then shows and edits; every field below is
+# declared `.volatile()` in lib/index.js, so saving the page updates the
+# running plugin in place instead of restarting it.
+- insert:
+    - id: context-compressor
+      name: dsh-context-compressor
+      config:
+        enabled: true
+        contextLimit: 0
+        retainTokens: 16000
+        maxRounds: 3
