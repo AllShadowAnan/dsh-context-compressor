@@ -1,6 +1,6 @@
 {
   "name": "dsh-context-compressor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "User-set absolute context ceiling for DeepSeek Harness: when a session's estimated context reaches the configured token limit, the harness automatically compacts the conversation. Ships a dedicated settings page (host half + browser half).",
   "license": "MIT",
   "repository": {

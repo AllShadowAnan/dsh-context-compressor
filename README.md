@@ -32,13 +32,16 @@ DeepSeek Harness 本身就会压缩上下文，但策略是**相对**的：`@dee
 pnpm install
 dsh plugin --profile desktop add link:/绝对路径/dsh-context-compressor
 
-# 从 registry 或 tarball 安装
-dsh plugin --profile desktop add dsh-context-compressor
+# 从 GitHub Release 安装：releases/latest 始终指向最新版
+dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/latest/download/dsh-context-compressor.tgz
+
+# 钉住某个版本（示例）
+dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/download/v1.0.1/dsh-context-compressor-1.0.1.tgz
 ```
 
 `dsh plugin` 会把参数原样转发给 `pnpm`，工作目录就是 profile 目录。由于本包同时声明了 `dsh.bundle.patch` 与 `dsh.client.platform: "web"`，同一条命令还会把 `dsh-context-compressor` 追加进 `dsh.profile.bundles`——这正是让该包成为一个 profile 组合层的关键。
 
-本插件唯一的运行时依赖是 `@deepseek-ai/schemastery`——它提供设置页所要投影的 `Config` schema。从 registry 安装会自动装上；用 `link:` 安装则需要先执行上面的 `pnpm install`。
+本插件唯一的运行时依赖是 `@deepseek-ai/schemastery`——它提供设置页所要投影的 `Config` schema。从 Release 的 tarball 安装会自动装上；用 `link:` 安装则需要先执行上面的 `pnpm install`。
 
 安装后：
 

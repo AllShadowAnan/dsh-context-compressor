@@ -32,13 +32,16 @@ The plugin is installed as an ordinary external profile plugin — nothing is pa
 pnpm install
 dsh plugin --profile desktop add link:/absolute/path/to/dsh-context-compressor
 
-# from a registry or tarball
-dsh plugin --profile desktop add dsh-context-compressor
+# from a GitHub release: releases/latest always resolves to the newest one
+dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/latest/download/dsh-context-compressor.tgz
+
+# pin an exact version (example)
+dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/download/v1.0.1/dsh-context-compressor-1.0.1.tgz
 ```
 
 `dsh plugin` forwards to `pnpm` with the profile directory as its working directory. Because this package declares both `dsh.bundle.patch` and `dsh.client.platform: "web"`, the same command also appends `dsh-context-compressor` to `dsh.profile.bundles`, which is what makes the package a profile composition layer.
 
-The plugin's one runtime dependency is `@deepseek-ai/schemastery` — it supplies the `Config` schema the Settings page projects. A registry install pulls it in automatically; a `link:` install needs the `pnpm install` above.
+The plugin's one runtime dependency is `@deepseek-ai/schemastery` — it supplies the `Config` schema the Settings page projects. A release-tarball install pulls it in automatically; a `link:` install needs the `pnpm install` above.
 
 Then:
 
