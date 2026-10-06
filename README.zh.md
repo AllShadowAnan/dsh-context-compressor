@@ -50,6 +50,20 @@ curl http://127.0.0.1:19387/dsh-context-compressor/status
 # {"ok":true,"data":{"enabled":true,"contextLimit":0,"retainTokens":16000,"maxRounds":3,...}}
 ```
 
+### 安装排错
+
+**从 Release URL 安装时 `pnpm` 报 `fetch failed`。** 部分 Windows 环境下 Node 自带的 CA 列表验证不了 GitHub 的证书链——可能是 TLS 拦截，或某个根证书只装在 Windows 信任库里、没进 Node 的列表。此时浏览器和 `Invoke-WebRequest` 都正常，所以看起来像网络问题，其实是信任问题。让那一条命令改用系统信任库即可：
+
+```sh
+NODE_OPTIONS=--use-system-ca dsh plugin --profile desktop add <tarball-url>
+```
+
+```powershell
+$env:NODE_OPTIONS = "--use-system-ca"; dsh plugin --profile desktop add <tarball-url>
+```
+
+任何 `github.com` 的 `pnpm add` 都同理，不是本插件特有的问题。
+
 ### 卸载
 
 ```sh

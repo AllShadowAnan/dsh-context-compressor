@@ -50,6 +50,20 @@ curl http://127.0.0.1:19387/dsh-context-compressor/status
 # {"ok":true,"data":{"enabled":true,"contextLimit":0,"retainTokens":16000,"maxRounds":3,...}}
 ```
 
+### Troubleshooting the install
+
+**`pnpm` reports `fetch failed` when installing from the release URL.** Node's bundled CA list cannot verify GitHub's certificate chain on some Windows setups — TLS inspection, or a corporate root that is in the Windows store but not in Node's bundle. A browser and `Invoke-WebRequest` still work, which makes it look like a network problem rather than a trust one. Point Node at the system trust store for that one command:
+
+```sh
+NODE_OPTIONS=--use-system-ca dsh plugin --profile desktop add <tarball-url>
+```
+
+```powershell
+$env:NODE_OPTIONS = "--use-system-ca"; dsh plugin --profile desktop add <tarball-url>
+```
+
+The same applies to `pnpm add` of any `github.com` URL, and it is not specific to this plugin.
+
 ### Uninstall
 
 ```sh
