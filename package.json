@@ -30,7 +30,7 @@
     "icon.svg",
     "locale/*.json",
     "README.md",
-    "README.zh.md",
+    "README.en.md",
     "LICENSE"
   ],
   "icon": "./icon.svg",

@@ -1,58 +1,60 @@
 # dsh-context-compressor
 
-An external [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that adds an **absolute context ceiling**: you pick a token limit, and once a session reaches it the harness compacts the conversation automatically — regardless of which model is routed or how large that model's context window is.
+**简体中文** · [English](README.en.md)
 
-It ships a dedicated page in Settings, so the limit is a user-facing preference rather than a config-file edit.
+一款 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 外置插件，为会话加上**绝对的上下文上限**：你设定一个 token 上限，一旦会话达到该上限，Harness 就会自动压缩对话——与当前路由到哪个模型、该模型上下文窗口多大都无关。
 
----
-
-## Why this exists
-
-DeepSeek Harness already compacts. Its policy is *relative*: `@deepseek-ai/dsh-compaction-basic` triggers at a fraction of whatever context window the routed model declares — 80% by default, with a 16% verbatim tail. That is the right default, and it is what most sessions want.
-
-It cannot express "never let one session grow past N tokens". Three cases where that matters:
-
-- **Cost and latency ceilings.** A 1M-token window does not mean a 1M-token budget.
-- **Mixed routing.** The same session can be routed to models with wildly different windows; a relative policy moves the line every time the route changes.
-- **Third-party and self-hosted endpoints.** Their declared `contextWindow` is often a guess, and the real limit is lower.
-
-This plugin adds the absolute knob without touching the built-in policy. Leave the ceiling at `0` and DSH behaves exactly as it did before.
+插件自带一个独立的设置页，因此上限是用户在界面上设置的偏好，而不需要去改配置文件。
 
 ---
 
-## Install
+## 为什么需要它
 
-The plugin is installed as an ordinary external profile plugin — nothing is patched into the application.
+DeepSeek Harness 本身就会压缩上下文，但策略是**相对**的：`@deepseek-ai/dsh-compaction-basic` 在「当前路由模型所声明上下文窗口」的某个比例处触发（默认 80%，并保留 16% 的原文尾部）。这是合理的默认值，也是大多数会话需要的。
+
+但它无法表达「一个会话绝不越过 N 个 token」。以下三种情况需要后者：
+
+- **成本与延迟上限。** 1M 的窗口不等于 1M 的预算。
+- **混合路由。** 同一个会话可能被路由到窗口差异巨大的模型上；相对策略会随路由变化而移动那条线。
+- **第三方与自建端点。** 它们声明的 `contextWindow` 常常只是估计值，真实上限更低。
+
+本插件在不触碰内置策略的前提下补上这个绝对旋钮。把上限留为 `0`，DSH 的行为与安装前完全一致。
+
+---
+
+## 安装
+
+本插件以普通的外置 profile 插件方式安装——不需要向应用程序里打任何补丁。
 
 ```sh
-# from a local checkout: install the package's own deps first, because a
-# `link:` dependency is a symlink and pnpm does not install into it
+# 从本地目录安装：先装本包自己的依赖。因为 link: 是软链接，
+# pnpm 不会往链接目标里安装依赖
 pnpm install
-dsh plugin --profile desktop add link:/absolute/path/to/dsh-context-compressor
+dsh plugin --profile desktop add link:/绝对路径/dsh-context-compressor
 
-# from a registry or tarball
+# 从 registry 或 tarball 安装
 dsh plugin --profile desktop add dsh-context-compressor
 ```
 
-`dsh plugin` forwards to `pnpm` with the profile directory as its working directory. Because this package declares both `dsh.bundle.patch` and `dsh.client.platform: "web"`, the same command also appends `dsh-context-compressor` to `dsh.profile.bundles`, which is what makes the package a profile composition layer.
+`dsh plugin` 会把参数原样转发给 `pnpm`，工作目录就是 profile 目录。由于本包同时声明了 `dsh.bundle.patch` 与 `dsh.client.platform: "web"`，同一条命令还会把 `dsh-context-compressor` 追加进 `dsh.profile.bundles`——这正是让该包成为一个 profile 组合层的关键。
 
-The plugin's one runtime dependency is `@deepseek-ai/schemastery` — it supplies the `Config` schema the Settings page projects. A registry install pulls it in automatically; a `link:` install needs the `pnpm install` above.
+本插件唯一的运行时依赖是 `@deepseek-ai/schemastery`——它提供设置页所要投影的 `Config` schema。从 registry 安装会自动装上；用 `link:` 安装则需要先执行上面的 `pnpm install`。
 
-Then:
+安装后：
 
-- **Live profiles (the Desktop app)** reconcile themselves when the profile manifest changes — the host half is active immediately. **Refresh the browser page** so the new browser bundle is injected into the document; that half cannot hot-apply.
-- **Startup profiles** need a restart.
+- **活动 profile（桌面应用）** 会在 profile 清单变化时自行重新组合——宿主端立刻生效。请**刷新浏览器页面**，让新的浏览器端 bundle 被注入文档；这一半无法热应用。
+- **启动型 profile** 需要重启。
 
-To confirm the host half is up:
+确认宿主端已加载：
 
 ```sh
 curl http://127.0.0.1:19387/dsh-context-compressor/status
 # {"ok":true,"data":{"enabled":true,"contextLimit":0,"retainTokens":16000,"maxRounds":3,...}}
 ```
 
-### Troubleshooting the install
+### 安装排错
 
-**`pnpm` reports `fetch failed` when installing from the release URL.** Node's bundled CA list cannot verify GitHub's certificate chain on some Windows setups — TLS inspection, or a corporate root that is in the Windows store but not in Node's bundle. A browser and `Invoke-WebRequest` still work, which makes it look like a network problem rather than a trust one. Point Node at the system trust store for that one command:
+**从 Release URL 安装时 `pnpm` 报 `fetch failed`。** 部分 Windows 环境下 Node 自带的 CA 列表验证不了 GitHub 的证书链——可能是 TLS 拦截，或某个根证书只装在 Windows 信任库里、没进 Node 的列表。此时浏览器和 `Invoke-WebRequest` 都正常，所以看起来像网络问题，其实是信任问题。让那一条命令改用系统信任库即可：
 
 ```sh
 NODE_OPTIONS=--use-system-ca dsh plugin --profile desktop add <tarball-url>
@@ -62,76 +64,76 @@ NODE_OPTIONS=--use-system-ca dsh plugin --profile desktop add <tarball-url>
 $env:NODE_OPTIONS = "--use-system-ca"; dsh plugin --profile desktop add <tarball-url>
 ```
 
-The same applies to `pnpm add` of any `github.com` URL, and it is not specific to this plugin.
+任何 `github.com` 的 `pnpm add` 都同理，不是本插件特有的问题。
 
-### Uninstall
+### 卸载
 
 ```sh
 dsh plugin --profile desktop remove dsh-context-compressor
 ```
 
-If the name lingers in `dsh.profile.bundles` in `$DSH_HOME/profiles/<profile>/package.json`, drop it there too.
+如果 `$DSH_HOME/profiles/<profile>/package.json` 的 `dsh.profile.bundles` 里仍残留该名字，一并删掉。
 
 ---
 
-## The Settings page
+## 设置页
 
-**Settings → 上下文压缩 / Context compression**
+**设置 → 上下文压缩**
 
-| Field | Default | Meaning |
+| 字段 | 默认值 | 含义 |
 | --- | --- | --- |
-| **Enable the absolute ceiling** | on | Master switch. Off restores DSH's built-in relative policy as the only trigger. |
-| **Context ceiling (tokens)** | `0` | The absolute cap on one session's estimated context. `0` means "no ceiling". |
-| **Keep the most recent (tokens)** | `16000` | The verbatim tail. Everything older than it may be replaced by one summary. |
-| **Reductions per step** | `3` | How many times one step may reduce the context before giving up for that step. |
+| **启用绝对上限** | 开 | 总开关。关闭后仅由 DSH 内置的相对阈值策略触发压缩。 |
+| **上下文上限（token）** | `0` | 单个会话估算上下文 token 的绝对上限。`0` 表示不设上限。 |
+| **保留最近（token）** | `16000` | 保持原文的尾部长度。比它更早的历史可能被压缩为一条摘要。 |
+| **单步最多压缩次数** | `3` | 同一步内最多压缩多少次，超过则本步放弃。 |
 
-Every field is `Reset to default`-able, and an overridden field is badged. Saves are staged: the page writes only when you press **Save**, and leaving the page discards uncommitted edits — the same contract every shipped settings page follows.
+每个字段都可以「恢复默认」，被覆盖的字段会带角标。保存是暂存式的：只有点 **保存** 才会写入，离开页面会丢弃未提交的修改——与所有官方设置页遵循同一套契约。
 
-Below the form is a **live readout** fed by the host half: the ceiling in force, the recently measured sessions (estimated tokens, that model's window, how many compactions the session has taken), the last compaction's before/after token counts, and any recent failures.
+表单下方是宿主端提供的**实时读数**：当前生效的上限、最近测量的会话（估算 token、该模型的窗口、该会话已压缩次数）、最近一次压缩的压缩前/后 token 数，以及最近的问题。
 
 ---
 
-## What happens when a session crosses the ceiling
+## 达到上限时会发生什么
 
-At every step boundary (`agent/pre-step`), for the agent about to take that step:
+在每一个步边界（`agent/pre-step`），针对即将迈出这一步的 agent：
 
-1. **Measure.** `ctx.tokenMeter.measure(session)` prices the current surface — the request image, not the raw transcript.
-2. **Under the ceiling?** Do nothing at all. This is the common path.
-3. **Prune first.** Over-budget tool results are shortened (`toolResultPruner`) — the cheap, deterministic reduction the built-in engine also tries first. If that alone clears the ceiling, **no summary is written**.
-4. **Then summarize.** Everything older than the `retainTokens` tail is replaced by one summary, via the public `compaction.compactRegion(start, end, agent)`. The cut is walked back until no assistant tool call is left without its result, so a tool-call/result pair is never split.
-5. **Repeat** up to `maxRounds` times, stopping as soon as the session is under the ceiling or a round makes no further progress.
+1. **测量。** `ctx.tokenMeter.measure(session)` 对当前 surface 计价——算的是「请求镜像」，不是原始流水账。
+2. **未达上限？** 什么都不做。这是最常见的情况。
+3. **先剪枝。** 超预算的工具结果会被截短（`toolResultPruner`）——这是内置引擎也会优先尝试的、确定性的廉价手段。如果仅此就降到上限以下，**不会写入任何摘要**。
+4. **再摘要。** 比 `retainTokens` 尾部更早的全部历史，通过公开的 `compaction.compactRegion(start, end, agent)` 替换为一条摘要。切点会一直向前回退，直到没有任何 assistant 工具调用失去配对结果，因此绝不会切断「工具调用/工具结果」对。
+5. **重复**，最多 `maxRounds` 次；一旦降到上限以下，或某一轮没有取得进展，就停止。
 
-Every failure is contained. A compaction that cannot run — the engine's durable lock is held, no safe cut exists, the summarizer errors — is logged, surfaced in the readout, and the turn continues. A context ceiling is an optimization; it is never a reason to fail a turn.
+所有失败都被就地兜住。无法执行的压缩——引擎的持久锁被占用、没有安全的切点、摘要器报错——会被记录、显示在读数里，然后本步继续。上下文上限是一种优化，永远不是让某一步失败的理由。
 
-### How it reaches the compaction engine
+### 它是怎么拿到压缩引擎的
 
-Worth knowing if you are writing a similar plugin, because the obvious approach does not work.
+如果你要写类似的插件，这一段值得一读，因为最直觉的做法并不成立。
 
-The compaction stack is mounted **inside each agent preset's isolated cordis group**, and the web bundle *disables* the profile-root rows of the same names (`@deepseek-ai/dsh-web-app`'s `cordis.patch.yml` turns off `compaction-basic`, `command-compact`, and `tool-result-pruner`). So:
+压缩栈被挂载在**每个 agent preset 的隔离 cordis 组**里，而 web bundle 会把同名的 profile 根层行**禁用**掉（`@deepseek-ai/dsh-web-app` 的 `cordis.patch.yml` 关闭了 `compaction-basic`、`command-compact`、`tool-result-pruner`）。因此：
 
-- A profile-root plugin **cannot** `inject: ['compaction']` — there is no such service on the host plane.
-- `agent.ctx.get('compaction')` **does not work either**. `agent.ctx` is a scope of the *root* `agent-loop` row, so its isolate key is the root symbol, under which the disabled row published nothing.
-- `agent.ctx.compaction` (property access) throws `cannot get property "compaction" without inject`.
+- profile 根层插件**无法** `inject: ['compaction']`——宿主平面上根本没有这个服务。
+- `agent.ctx.get('compaction')` **同样不行**。`agent.ctx` 是*根层* `agent-loop` 行的作用域，它的 isolate key 是根符号，而被禁用的那一行并没有往那里发布任何东西。
+- `agent.ctx.compaction`（属性访问）会抛 `cannot get property "compaction" without inject`。
 
-The registry that mounts each preset is the one handle that can look inside its own isolated realm, and it publishes `serviceFor(agent, name)` for exactly this purpose — `@deepseek-ai/dsh-api-session-controller` resolves `skills` the same way. This plugin resolves per agent, per call:
+挂载各 preset 的注册表是唯一能看进自己隔离域的句柄，它为此专门发布了 `serviceFor(agent, name)`——`@deepseek-ai/dsh-api-session-controller` 就是以同样方式解析 `skills` 的。本插件按 agent、按调用逐次解析：
 
 ```js
-ctx.get('agentPresets')?.serviceFor(agent, 'compaction')   // the preset realm
-  ?? ctx.get('compaction') ?? agent.ctx.get('compaction')  // the host plane (headless)
+ctx.get('agentPresets')?.serviceFor(agent, 'compaction')   // preset 隔离域
+  ?? ctx.get('compaction') ?? agent.ctx.get('compaction')  // 宿主平面（headless 等）
 ```
 
-The token meter is the exception that proves the rule: it deliberately *stays* on the host plane (its projection table is process-wide), so it resolves from the plugin's own context.
+token meter 是印证这条规则的那个例外：它有意**留在**宿主平面上（它的投影表是进程级的），所以从插件自身的 context 就能解析到。
 
-Two more contracts this plugin depends on:
+本插件还依赖另外两条契约：
 
-- **`agent/pre-step` is a scope-filtered waterfall**, and an untagged listener registered on any context is admitted for every agent. That is the seam a root plugin wants, and it is also the only safe moment — the engine's region compaction requires an **open turn**, and `agent/pre-step` runs inside one.
-- **Volatile config is what makes the page live.** Every field is declared `.volatile()`, so a settings write commits into the running reference in place (`cordis-plugin-loader`'s `_commitVolatile`) instead of remounting the plugin. The plugin therefore reads `config.contextLimit.get()` at each decision point and never caches a value.
+- **`agent/pre-step` 是带作用域过滤的 waterfall**，注册在任意 context 上的「未打标签」监听器会对每个 agent 放行。这正是根层插件想要的缝，同时也是唯一安全的时机——引擎的区域压缩要求**存在打开的 turn**，而 `agent/pre-step` 正运行在 turn 之内。
+- **volatile 配置才是设置页能实时生效的原因。** 每个字段都声明为 `.volatile()`，因此设置写入会就地提交到运行中的引用上（`cordis-plugin-loader` 的 `_commitVolatile`），而不是重新挂载插件。所以插件在每个决策点读取 `config.contextLimit.get()`，从不缓存取值。
 
 ---
 
-## Configuration
+## 配置
 
-The same four fields can be seeded from the composition layer — the plugin's own `cordis.patch.yml`, or the profile's:
+同样这四个字段也可以从组合层预置——插件的 `cordis.patch.yml`，或 profile 的补丁：
 
 ```yaml
 - insert:
@@ -144,48 +146,48 @@ The same four fields can be seeded from the composition layer — the plugin's o
         maxRounds: 3
 ```
 
-`id` is the **settings namespace** the page edits, not the package name. Keep them in sync if you rename it (`SETTINGS_NS` in `lib/index.js`, `SETTINGS_NS` in `lib/client.js`).
+`id` 是设置页所编辑的**设置命名空间**，不是包名。如果你要改名，请保持三处一致（`lib/index.js` 的 `SETTINGS_NS`、`lib/client.js` 的 `SETTINGS_NS`、以及补丁行的 `id`）。
 
 ---
 
-## Package layout
+## 包结构
 
 ```
 package.json          name / exports["./client"] / dsh.bundle.patch / dsh.client.platform
-cordis.patch.yml      the profile composition layer: mounts the host row and seeds defaults
-lib/index.js          host half: the ceiling policy, the pre-step hook, the status route
-lib/client.js         browser half: the Settings page (hand-written bundle, no build step)
-locale/{en,zh}.json   the plugin inventory's title and description
-icon.svg              plugin artwork
-test/                 29 tests: policy, harness-settings conformance, browser bundle
+cordis.patch.yml      profile 组合层：挂载宿主行并预置默认值
+lib/index.js          宿主端：上限策略、pre-step 钩子、状态路由
+lib/client.js         浏览器端：设置页（手写 bundle，无需构建）
+locale/{en,zh}.json   插件清单里的标题与描述
+icon.svg              插件图标
+test/                 29 个测试：策略、harness 设置一致性、浏览器 bundle
 ```
 
-There is **no build step**. The host half is plain ESM. The browser half is written directly in the shape DSH's client module loader expects — `window.__ModuleLoader__.load({ id, factory })` — and `require`s only platform seed words (`react`, `@deepseek-ai/dsh-client-ui-primitives`), so nothing needs bundling.
+**没有构建步骤。** 宿主端是普通 ESM。浏览器端直接按 DSH 客户端模块加载器期望的形态书写——`window.__ModuleLoader__.load({ id, factory })`——并且只 `require` 平台种子模块（`react`、`@deepseek-ai/dsh-client-ui-primitives`），因此无需打包。
 
 ---
 
-## Tests
+## 测试
 
 ```sh
 node --test test/host.test.mjs test/settings-projection.test.mjs test/client.test.mjs
 ```
 
-Three suites, 29 tests:
+三个测试文件，共 29 个测试：
 
-- **`host.test.mjs`** — the policy against fakes: the schema contract, balanced-cut selection, the retained tail, the system head, the prune-first path, the preset-realm resolution, failure containment, and the status route.
-- **`settings-projection.test.mjs`** — runs the **harness's own** `volatileForm` / `projectForm` / `isVolatilePath` (imported from the installed application) against this plugin's `Config`, so a schema mistake fails here instead of producing a Settings page with no controls. Set `DSH_REFERENCE_ASAR` to the extracted application to run it; it skips otherwise.
-- **`client.test.mjs`** — evaluates the real browser bundle against the module loader, then renders the page with **real React** and asserts every `t()` key resolves in both dictionaries.
+- **`host.test.mjs`** —— 用替身验证策略：schema 契约、平衡切点选择、保留尾部、system 头部、先剪枝路径、preset 隔离域解析、失败兜底、状态路由。
+- **`settings-projection.test.mjs`** —— 把**harness 自己的** `volatileForm` / `projectForm` / `isVolatilePath`（从已安装的应用中导入）跑在本插件的 `Config` 上；schema 写错会在这里失败，而不是变成一个没有任何控件的设置页。把 `DSH_REFERENCE_ASAR` 指向解包出来的应用即可运行，否则该套件自动跳过。
+- **`client.test.mjs`** —— 用真实的模块加载器环境执行真实的浏览器 bundle，再用**真实 React** 渲染页面，并断言每个 `t()` 键在中英两份字典里都能解析。
 
 ---
 
-## Known limitations
+## 已知限制
 
-- **Token counts are estimates.** The meter prices the request image with a fixed-density heuristic until provider usage is available; treat the ceiling as a budget line, not an exact tokenizer count.
-- **A single oversized unit cannot be repaired.** If one retained message or request envelope exceeds the ceiling on its own, surface compaction has nothing safe to cut and the session stays over. The readout says so.
-- **The ceiling is enforced at step boundaries**, so one step can overshoot it before the next measurement lands.
-- **It needs a composition that mounts compaction.** The Desktop and web apps do; a minimal profile that never mounts the compaction stack has nothing for this plugin to drive, and it stays inert rather than failing.
-- **The browser half needs a page refresh** after install. Only the host half hot-applies.
+- **token 数是估算值。** 在拿到提供方用量之前，计量器用固定密度启发式对请求镜像计价；请把上限当作预算线，而不是精确的分词计数。
+- **单个超大单元无法被修复。** 如果某一条保留消息或某个请求信封本身就超过上限，surface 压缩没有安全的切点可用，会话会停在上限之上。读数会显示这种情况。
+- **上限在步边界处执行**，因此某一步可能在下次测量落地前先越线。
+- **它需要一个挂载了压缩栈的组合。** 桌面端与 web 端都满足；一个从不挂载压缩栈的最小 profile 没有东西可供本插件驱动，此时它会保持惰性而不是报错。
+- **浏览器端在安装后需要刷新页面。** 只有宿主端能热应用。
 
-## License
+## 许可证
 
-MIT.
+MIT。
