@@ -158,7 +158,30 @@ function Switch(props) {
   )
 }
 
-const PRIMITIVES = { SettingsForm, SettingsFormModel, SettingsValueField, settingsNumberField, Switch }
+/** `SegmentedControl` — a `role="tablist"` of `role="tab"` buttons. */
+function SegmentedControl(props) {
+  return React.createElement(
+    'div',
+    { role: 'tablist', 'aria-label': props.label, className: props.className },
+    props.options.map((option) =>
+      React.createElement(
+        'button',
+        {
+          key: option.value,
+          id: `${props.id}-${option.value}`,
+          type: 'button',
+          role: 'tab',
+          'aria-selected': option.value === props.value,
+          disabled: props.disabled || option.disabled === true,
+          onClick: () => { if (option.value !== props.value) props.onChange(option.value) },
+        },
+        option.label,
+      ),
+    ),
+  )
+}
+
+const PRIMITIVES = { SegmentedControl, SettingsForm, SettingsFormModel, SettingsValueField, settingsNumberField, Switch }
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -235,7 +258,7 @@ function fakeClientCtx() {
     configForms: {
       get: (ns) => {
         ctx.requestedNamespace = ns
-        return fakeScope({ enabled: true, contextLimit: 90000, retainTokens: 16000, maxRounds: 3 })
+        return fakeScope({ enabled: true, mode: 'absolute', contextLimit: 90000, contextRatioPercent: 80, retainTokens: 16000, maxRounds: 3 })
       },
     },
     slots: {
@@ -268,6 +291,30 @@ function sectionProps(ctx, t) {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+/**
+ * Apply the plugin once and hand back a renderer that re-reads the live form,
+ * so a staged edit can be observed by rendering again.
+ */
+function mountAndRender() {
+  const { registration } = loadBundle()
+  const plugin = registration.factory(makeRequire())
+  const ctx = fakeClientCtx()
+  plugin.apply(ctx)
+  const { options, component } = ctx.sections[0]
+  const t = ctx.locale.bind(options.locale)
+  return {
+    ctx,
+    t,
+    /** Render the page against the form's current staged state. */
+    render() {
+      const props = sectionProps(ctx, t)
+      return { props, html: renderToStaticMarkup(React.createElement(component, props)) }
+    },
+    /** The staged field state a save would write. */
+    store: () => ctx.sections[0].options.inject().hooks.contextCompressor.getSnapshot(),
+  }
+}
 
 test('the bundle registers under the package name and exports a cordis plugin', () => {
   const { registration } = loadBundle()
@@ -318,21 +365,50 @@ test('the page label is localized through the registered dictionaries', () => {
 })
 
 test('the section renders every control with no missing translation key', () => {
-  const { registration } = loadBundle()
-  const plugin = registration.factory(makeRequire())
-  const ctx = fakeClientCtx()
-  plugin.apply(ctx)
-  const { options, component } = ctx.sections[0]
-  const t = ctx.locale.bind(options.locale)
-  const html = renderToStaticMarkup(React.createElement(component, sectionProps(ctx, t)))
+  const { t, render } = mountAndRender()
+  const { html } = render()
 
   assert.match(html, /role="switch"/, 'the enable toggle renders')
   assert.match(html, /aria-checked="true"/, 'the toggle reflects the served config')
+  assert.match(html, /role="tablist"/, 'the two-way trigger choice renders')
+  assert.match(html, /id="cc-mode-absolute"/)
+  assert.match(html, /id="cc-mode-ratio"/)
   assert.match(html, /id="cc-limit"/)
   assert.match(html, /id="cc-retain"/)
   assert.match(html, /id="cc-rounds"/)
   assert.match(html, /90000/, 'the served ceiling is shown')
   assert.ok(html.includes(t('statusTitle')), 'the live readout panel renders')
+})
+
+test('the trigger is a two-way choice and only its own field is rendered', () => {
+  const { render, store } = mountAndRender()
+  const absolute = render()
+
+  assert.equal(store().mode.text, 'absolute')
+  assert.match(absolute.html, /aria-selected="true"[^>]*>绝对上限/, 'the served mode is the selected tab')
+  assert.match(absolute.html, /id="cc-limit"/, 'absolute mode renders the token ceiling')
+  assert.doesNotMatch(absolute.html, /id="cc-ratio"/, 'and not the ratio field')
+
+  // Exactly what the segmented control's onChange does.
+  absolute.props.edit('mode', 'ratio')
+  assert.equal(store().mode.text, 'ratio')
+  assert.equal(store().mode.overridden, true, 'a staged change is marked as an override')
+
+  const ratio = render()
+  assert.match(ratio.html, /aria-selected="true"[^>]*>按窗口比例/)
+  assert.match(ratio.html, /id="cc-ratio"/, 'ratio mode renders the percentage field')
+  assert.doesNotMatch(ratio.html, /id="cc-limit"/, 'and hides the absolute one')
+})
+
+test('switching modes leaves the other trigger’s value untouched', () => {
+  const { render, store } = mountAndRender()
+  render().props.edit('mode', 'ratio')
+  render().props.edit('mode', 'absolute')
+  const back = render()
+
+  assert.match(back.html, /id="cc-limit"/)
+  assert.match(back.html, /90000/, 'the absolute ceiling was never rewritten by the switch')
+  assert.equal(store().mode.text, 'absolute')
 })
 
 test('an unavailable namespace renders the unavailable notice instead of controls', () => {

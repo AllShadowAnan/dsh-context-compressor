@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import Schema from '@deepseek-ai/schemastery'
-import { Config, SETTINGS_NS, apply, balancedBefore, selectRange } from '../lib/index.js'
+import { Config, SETTINGS_NS, apply, balancedBefore, resolveLimit, selectRange } from '../lib/index.js'
 
 /** Resolve a raw config the way cordis does before calling apply(). */
 function resolve(raw) {
@@ -108,12 +108,73 @@ function fakePresetAgent(session, hostPlane) {
 test('config schema exposes every field as volatile and defaults are inert', () => {
   const resolved = resolve({})
   assert.equal(resolved.enabled.get(), true)
+  assert.equal(resolved.mode.get(), 'absolute')
   assert.equal(resolved.contextLimit.get(), 0)
+  assert.equal(resolved.contextRatioPercent.get(), 80)
   assert.equal(resolved.retainTokens.get(), 16000)
   assert.equal(resolved.maxRounds.get(), 3)
-  for (const field of ['enabled', 'contextLimit', 'retainTokens', 'maxRounds']) {
+  for (const field of ['enabled', 'mode', 'contextLimit', 'contextRatioPercent', 'retainTokens', 'maxRounds']) {
     assert.equal(Config.dict[field].meta.volatile, true, `${field} must be volatile so the settings page can write it live`)
   }
+})
+
+test('the trigger mode is a closed set, so a typo cannot silently disable the plugin', () => {
+  assert.equal(resolve({ mode: 'ratio' }).mode.get(), 'ratio')
+  assert.equal(resolve({ mode: 'absolute' }).mode.get(), 'absolute')
+  for (const bad of ['nope', 'Absolute', 'RATIO', '', 7, true]) {
+    const result = Config['~standard'].validate({ mode: bad })
+    assert.notEqual(result.issues, undefined, `${JSON.stringify(bad)} must be rejected`)
+  }
+})
+
+test('the ratio percentage is bounded by the schema', () => {
+  for (const bad of [0, 4, 96, 100, -1]) {
+    assert.notEqual(Config['~standard'].validate({ contextRatioPercent: bad }).issues, undefined, `${bad} must be rejected`)
+  }
+  for (const ok of [5, 80, 95]) {
+    assert.equal(Config['~standard'].validate({ contextRatioPercent: ok }).issues, undefined, `${ok} must be accepted`)
+  }
+})
+
+test('resolveLimit: absolute mode uses the configured count and ignores the window', () => {
+  assert.deepEqual(resolveLimit(resolve({ contextLimit: 120000 }), 200000), { limit: 120000, mode: 'absolute' })
+  assert.deepEqual(resolveLimit(resolve({ contextLimit: 120000 }), undefined), { limit: 120000, mode: 'absolute' })
+})
+
+test('resolveLimit: an unset absolute limit is inert, not a zero ceiling', () => {
+  assert.equal(resolveLimit(resolve({ contextLimit: 0 }), 200000), undefined)
+  assert.equal(resolveLimit(resolve({}), 200000), undefined, 'the default config must do nothing at all')
+})
+
+test('resolveLimit: ratio mode derives the limit from the routed model window', () => {
+  assert.deepEqual(resolveLimit(resolve({ mode: 'ratio' }), 200000), { limit: 160000, mode: 'ratio', ratioPercent: 80 })
+  assert.deepEqual(resolveLimit(resolve({ mode: 'ratio', contextRatioPercent: 50 }), 32000), { limit: 16000, mode: 'ratio', ratioPercent: 50 })
+})
+
+test('resolveLimit: ratio mode is inert until a window has been logged', () => {
+  // A session with no `request/context` yet has nothing worth compacting, and
+  // guessing a window would be worse than doing nothing.
+  assert.equal(resolveLimit(resolve({ mode: 'ratio' }), undefined), undefined)
+  assert.equal(resolveLimit(resolve({ mode: 'ratio' }), 0), undefined)
+})
+
+test('resolveLimit: a percentage outside the schema range is clamped, not trusted', () => {
+  // Reachable when a config file is hand-edited and loaded without validation.
+  assert.deepEqual(resolveLimit({ mode: 'ratio', contextRatioPercent: 1 }, 200000), { limit: 10000, mode: 'ratio', ratioPercent: 5 })
+  assert.deepEqual(resolveLimit({ mode: 'ratio', contextRatioPercent: 200 }, 200000), { limit: 190000, mode: 'ratio', ratioPercent: 95 })
+  assert.deepEqual(resolveLimit({ mode: 'ratio', contextRatioPercent: 'x' }, 200000), { limit: 160000, mode: 'ratio', ratioPercent: 80 })
+})
+
+test('resolveLimit: the ratio rounds down so the trigger never overshoots the share', () => {
+  assert.deepEqual(resolveLimit({ mode: 'ratio', contextRatioPercent: 33 }, 1000), { limit: 330, mode: 'ratio', ratioPercent: 33 })
+  assert.deepEqual(resolveLimit({ mode: 'ratio', contextRatioPercent: 33 }, 1001), { limit: 330, mode: 'ratio', ratioPercent: 33 })
+})
+
+test('resolveLimit: the two modes are mutually exclusive', () => {
+  // An absolute limit is present but must be ignored entirely in ratio mode,
+  // and vice versa.
+  assert.deepEqual(resolveLimit(resolve({ mode: 'ratio', contextLimit: 5 }), 200000), { limit: 160000, mode: 'ratio', ratioPercent: 80 })
+  assert.deepEqual(resolveLimit(resolve({ mode: 'absolute', contextLimit: 5, contextRatioPercent: 50 }), 200000), { limit: 5, mode: 'absolute' })
 })
 
 test('settings namespace is the profile patch row id', () => {
@@ -238,6 +299,68 @@ test('crossing the ceiling compacts the region before the retained tail', async 
   assert.equal(calls[0].signal, signal, 'the turn signal is forwarded')
 })
 
+test('ratio mode compacts once the session reaches the share of the window', async () => {
+  const session = fakeSession([
+    { type: 'system/message', data: {} },
+    assistantMessage(0),
+    assistantMessage(0),
+    assistantMessage(0),
+    assistantMessage(0),
+  ])
+  const calls = []
+  let tokens = 170000
+  const services = {
+    tokenMeter: {
+      measure: (s) => ({
+        totalTokens: tokens,
+        baseline: {},
+        nodes: s.surface.nodes.map((seq) => ({ seq, tokens: 100, heuristicTokens: 0 })),
+      }),
+    },
+    compaction: {
+      compactRegion(start, end) {
+        calls.push({ start, end })
+        tokens = 1000
+        return { shadowedTokenCount: 169000, shadowedSeqs: [2, 3] }
+      },
+      compactIfNeeded: () => null,
+    },
+  }
+  const ctx = fakeCtx({ sessionProjections: { stateOf: (s, key) => (key === 'contextPressure' ? { contextWindow: 200000 } : undefined) } })
+  apply(ctx, resolve({ mode: 'ratio', contextRatioPercent: 80, retainTokens: 200 }))
+  await ctx.hooks.get('agent/pre-step')({ agent: fakeAgent(session, services), signal: new AbortController().signal }, () => {})
+
+  assert.equal(calls.length, 1, '170000 tokens is over 80% of a 200000 window')
+  const payload = callRoute(ctx.routes[0])
+  assert.equal(payload.data.mode, 'ratio')
+  assert.equal(payload.data.contextRatioPercent, 80)
+})
+
+test('ratio mode does nothing while the window is still unknown', async () => {
+  const session = fakeSession([assistantMessage(0), assistantMessage(0), assistantMessage(0)])
+  let measured = 0
+  const services = {
+    tokenMeter: {
+      measure: (s) => {
+        measured += 1
+        return { totalTokens: 999999, baseline: {}, nodes: s.surface.nodes.map((seq) => ({ seq, tokens: 1, heuristicTokens: 0 })) }
+      },
+    },
+    compaction: {
+      compactRegion: () => {
+        throw new Error('nothing may be compacted without a window')
+      },
+      compactIfNeeded: () => null,
+    },
+  }
+  // No `sessionProjections` service at all. The shipped composition always has
+  // one; a composition without it must be inert rather than fatal.
+  const ctx = fakeCtx()
+  apply(ctx, resolve({ mode: 'ratio' }))
+  await ctx.hooks.get('agent/pre-step')({ agent: fakeAgent(session, services), signal: new AbortController().signal }, () => {})
+  assert.equal(measured, 0, 'no window means no measurement and no work')
+})
+
 test('a session that cannot be reduced stops after one round instead of looping', async () => {
   const session = fakeSession([assistantMessage(0), assistantMessage(0), assistantMessage(0)])
   let rounds = 0
@@ -354,6 +477,36 @@ test('the status readout reports the logged context window from the projection',
   assert.equal(row.tokens, 20)
   assert.equal(row.contextWindow, 128000)
   assert.equal(row.compactions, 0)
+})
+
+test('the status readout reports the limit the ratio mode derived from the window', async () => {
+  const session = fakeSession([assistantMessage(0), assistantMessage(0)], undefined, 'session-ratio-readout')
+  const services = {
+    tokenMeter: fakeMeter([10, 10], 20, undefined),
+    compaction: { compactRegion: () => null, compactIfNeeded: () => null },
+  }
+  const ctx = fakeCtx({
+    sessionProjections: { stateOf: (s, key) => (key === 'contextPressure' ? { contextWindow: 32000 } : undefined) },
+  })
+  apply(ctx, resolve({ mode: 'ratio', contextRatioPercent: 50 }))
+  await ctx.hooks.get('agent/pre-step')({ agent: fakeAgent(session, services), signal: new AbortController().signal }, () => {})
+
+  const payload = callRoute(ctx.routes[0])
+  const row = payload.data.sessions.find((entry) => entry.sessionId === 'session-ratio-readout')
+  assert.notEqual(row, undefined)
+  assert.equal(row.limit, 16000, '50% of a 32000 window')
+  assert.equal(row.mode, 'ratio')
+  assert.equal(row.contextWindow, 32000)
+  assert.equal(payload.data.mode, 'ratio')
+})
+
+test('the status readout reports absolute mode as the default', () => {
+  const ctx = fakeCtx()
+  apply(ctx, resolve({ contextLimit: 4200 }))
+  const payload = callRoute(ctx.routes[0])
+  assert.equal(payload.data.mode, 'absolute')
+  assert.equal(payload.data.contextLimit, 4200)
+  assert.equal(payload.data.contextRatioPercent, 80)
 })
 
 test('the status route refuses a cross-site caller', () => {

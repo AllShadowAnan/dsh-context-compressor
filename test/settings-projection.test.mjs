@@ -44,11 +44,11 @@ function resolve(raw) {
 test('the harness projects every configured field as editable', { skip }, () => {
   const form = harness.volatileForm(Config)
   assert.notEqual(form, undefined, 'volatileForm found no volatile field, so the settings page would render nothing')
-  assert.deepEqual(Object.keys(form.dict).sort(), ['contextLimit', 'enabled', 'maxRounds', 'retainTokens'])
+  assert.deepEqual(Object.keys(form.dict).sort(), ['contextLimit', 'contextRatioPercent', 'enabled', 'maxRounds', 'mode', 'retainTokens'])
 })
 
 test('the harness accepts a write to each field path', { skip }, () => {
-  for (const field of ['enabled', 'contextLimit', 'retainTokens', 'maxRounds']) {
+  for (const field of ['enabled', 'mode', 'contextLimit', 'contextRatioPercent', 'retainTokens', 'maxRounds']) {
     assert.equal(harness.isVolatilePath(Config, [field]), true, `${field} is not writable`)
   }
   assert.equal(harness.isVolatilePath(Config, ['nope']), false)
@@ -58,12 +58,32 @@ test('the projected form shows the resolved values and their user layer', { skip
   const form = harness.volatileForm(Config)
   const resolved = resolve({ contextLimit: 90000 })
   const value = harness.projectForm(form, harness.plainConfig(resolved))
-  assert.deepEqual(value, { enabled: true, contextLimit: 90000, retainTokens: 16000, maxRounds: 3 })
+  assert.deepEqual(value, { enabled: true, mode: 'absolute', contextLimit: 90000, contextRatioPercent: 80, retainTokens: 16000, maxRounds: 3 })
 
   // The overridden badge is driven by presence in the user layer, not by value
   // comparison, so the raw patch is what the page reads back.
   const user = harness.projectForm(form, { contextLimit: 90000 })
   assert.deepEqual(user, { contextLimit: 90000 })
+})
+
+test('the union trigger mode survives a round trip through the projection', { skip }, () => {
+  // The page stages `mode` as the literal string the union accepts; this is the
+  // check that the harness reads it back as the same string, in both directions.
+  const form = harness.volatileForm(Config)
+  for (const mode of ['absolute', 'ratio']) {
+    assert.deepEqual(harness.projectForm(form, { mode }), { mode })
+  }
+  const resolved = resolve({ mode: 'ratio', contextRatioPercent: 50 })
+  assert.equal(resolved.mode.get(), 'ratio')
+  assert.equal(resolved.contextRatioPercent.get(), 50)
+  assert.deepEqual(harness.projectForm(form, harness.plainConfig(resolved)), {
+    enabled: true,
+    mode: 'ratio',
+    contextLimit: 0,
+    contextRatioPercent: 50,
+    retainTokens: 16000,
+    maxRounds: 3,
+  })
 })
 
 test('a non-volatile sibling field would be rejected (guards the contract)', { skip }, () => {

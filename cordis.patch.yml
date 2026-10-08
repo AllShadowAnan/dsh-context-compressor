@@ -11,6 +11,10 @@
       name: dsh-context-compressor
       config:
         enabled: true
+        # Pick ONE trigger: `absolute` enforces contextLimit, `ratio` enforces
+        # contextRatioPercent of the routed model's declared window.
+        mode: absolute
         contextLimit: 0
+        contextRatioPercent: 80
         retainTokens: 16000
         maxRounds: 3

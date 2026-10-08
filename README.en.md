@@ -2,23 +2,27 @@
 
 [简体中文](README.md) · **English**
 
-An external [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that adds an **absolute context ceiling**: you pick a token limit, and once a session reaches it the harness compacts the conversation automatically — regardless of which model is routed or how large that model's context window is.
+An external [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that adds a **configurable context trigger**: pick one of two — an **absolute token ceiling**, or a **share of the model's context window** — and once a session reaches it the harness compacts the conversation automatically.
 
-It ships a dedicated page in Settings, so the limit is a user-facing preference rather than a config-file edit.
+It ships a dedicated page in Settings, so the trigger is a user-facing preference rather than a config-file edit.
 
 ---
 
 ## Why this exists
 
-DeepSeek Harness already compacts. Its policy is *relative*: `@deepseek-ai/dsh-compaction-basic` triggers at a fraction of whatever context window the routed model declares — 80% by default, with a 16% verbatim tail. That is the right default, and it is what most sessions want.
+DeepSeek Harness already compacts. Its policy is a **hard-coded relative** one: `@deepseek-ai/dsh-compaction-basic` triggers at 80% of whatever context window the routed model declares, with a 16% verbatim tail. That is the right default, and it is what most sessions want.
 
-It cannot express "never let one session grow past N tokens". Three cases where that matters:
+What it does not give you is a say in **where that line is drawn**. This plugin offers two ways to draw it, and you pick one:
 
-- **Cost and latency ceilings.** A 1M-token window does not mean a 1M-token budget.
-- **Mixed routing.** The same session can be routed to models with wildly different windows; a relative policy moves the line every time the route changes.
-- **Third-party and self-hosted endpoints.** Their declared `contextWindow` is often a guess, and the real limit is lower.
+- **Absolute ceiling (`absolute`).** "Never let one session grow past N tokens." For:
+  - **Cost and latency ceilings.** A 1M-token window does not mean a 1M-token budget.
+  - **Mixed routing.** The same session can be routed to models with wildly different windows; an absolute ceiling does not move when the route changes.
+  - **Third-party and self-hosted endpoints.** Their declared `contextWindow` is often a guess, and the real limit is lower.
+- **Share of window (`ratio`).** "Compact at X% of the window." This is exactly what the built-in policy does, except the hard-coded 80% becomes a number you control — compact earlier to save cost, or later to keep more context.
 
-This plugin adds the absolute knob without touching the built-in policy. Leave the ceiling at `0` and DSH behaves exactly as it did before.
+The two modes are **mutually exclusive**: only the selected one is ever computed, and the page renders only the field that belongs to it. The other value stays in the config, so switching back restores it.
+
+Turn the master switch off and DSH behaves exactly as it did before installation.
 
 ---
 
@@ -47,12 +51,13 @@ Then:
 
 - **Live profiles (the Desktop app)** reconcile themselves when the profile manifest changes — the host half is active immediately. **Refresh the browser page** so the new browser bundle is injected into the document; that half cannot hot-apply.
 - **Startup profiles** need a restart.
+- **After editing the plugin's own source, restart the application.** The host half is Node code loaded at boot, and the browser bundle's bytes are read and cached at boot too; reinstalling or touching the profile manifest does not re-evaluate an already-loaded module. A page refresh alone is not enough.
 
 To confirm the host half is up:
 
 ```sh
 curl http://127.0.0.1:19387/dsh-context-compressor/status
-# {"ok":true,"data":{"enabled":true,"contextLimit":0,"retainTokens":16000,"maxRounds":3,...}}
+# {"ok":true,"data":{"enabled":true,"mode":"absolute","contextLimit":0,"contextRatioPercent":80,"retainTokens":16000,"maxRounds":3,...}}
 ```
 
 ### Troubleshooting the install
@@ -85,28 +90,31 @@ If the name lingers in `dsh.profile.bundles` in `$DSH_HOME/profiles/<profile>/pa
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| **Enable the absolute ceiling** | on | Master switch. Off restores DSH's built-in relative policy as the only trigger. |
-| **Context ceiling (tokens)** | `0` | The absolute cap on one session's estimated context. `0` means "no ceiling". |
+| **Enable the trigger** | on | Master switch. Off restores DSH's built-in relative policy as the only trigger. |
+| **Trigger** | Absolute ceiling | Pick one: `Absolute ceiling` or `Share of window`. Only the selected one is enforced, and only its field is shown below. |
+| **Context ceiling (tokens)** | `0` | Active in absolute mode. The cap on one session's estimated context. `0` means "no ceiling". |
+| **Trigger at (% of window)** | `80` | Active in ratio mode. Accepted range 5–95. 80 is what the built-in policy uses. |
 | **Keep the most recent (tokens)** | `16000` | The verbatim tail. Everything older than it may be replaced by one summary. |
 | **Reductions per step** | `3` | How many times one step may reduce the context before giving up for that step. |
 
 Every field is `Reset to default`-able, and an overridden field is badged. Saves are staged: the page writes only when you press **Save**, and leaving the page discards uncommitted edits — the same contract every shipped settings page follows.
 
-Below the form is a **live readout** fed by the host half: the ceiling in force, the recently measured sessions (estimated tokens, that model's window, how many compactions the session has taken), the last compaction's before/after token counts, and any recent failures.
+Below the form is a **live readout** fed by the host half: the trigger in force, the ceiling it resolves to (in ratio mode, the actual token count it works out to, or `—` while the window is unknown), the recently measured sessions (estimated tokens, that model's window, the threshold that session was held to, how many compactions it has taken), the last compaction's before/after token counts, and any recent failures. If the retained tail is not smaller than the ceiling, the readout says so directly — in that configuration a compaction has nothing left to summarize.
 
 ---
 
-## What happens when a session crosses the ceiling
+## What happens when a session crosses the trigger
 
 At every step boundary (`agent/pre-step`), for the agent about to take that step:
 
-1. **Measure.** `ctx.tokenMeter.measure(session)` prices the current surface — the request image, not the raw transcript.
-2. **Under the ceiling?** Do nothing at all. This is the common path.
-3. **Prune first.** Over-budget tool results are shortened (`toolResultPruner`) — the cheap, deterministic reduction the built-in engine also tries first. If that alone clears the ceiling, **no summary is written**.
-4. **Then summarize.** Everything older than the `retainTokens` tail is replaced by one summary, via the public `compaction.compactRegion(start, end, agent)`. The cut is walked back until no assistant tool call is left without its result, so a tool-call/result pair is never split.
-5. **Repeat** up to `maxRounds` times, stopping as soon as the session is under the ceiling or a round makes no further progress.
+1. **Resolve the threshold.** In absolute mode that is the configured token count; in ratio mode it is the routed model's declared window times the configured percentage, rounded down. Ratio mode does **nothing at all** while the session has logged no `request/context` — with no known window there is also nothing worth compacting. A master switch that is off, or an absolute limit of `0`, returns just as early.
+2. **Measure.** `ctx.tokenMeter.measure(session)` prices the current surface — the request image, not the raw transcript.
+3. **Under the threshold?** Do nothing at all. This is the common path.
+4. **Prune first.** Over-budget tool results are shortened (`toolResultPruner`) — the cheap, deterministic reduction the built-in engine also tries first. If that alone clears the threshold, **no summary is written**.
+5. **Then summarize.** Everything older than the `retainTokens` tail is replaced by one summary, via the public `compaction.compactRegion(start, end, agent)`. The cut is walked back until no assistant tool call is left without its result, so a tool-call/result pair is never split.
+6. **Repeat** up to `maxRounds` times, stopping as soon as the session is under the threshold or a round makes no further progress.
 
-Every failure is contained. A compaction that cannot run — the engine's durable lock is held, no safe cut exists, the summarizer errors — is logged, surfaced in the readout, and the turn continues. A context ceiling is an optimization; it is never a reason to fail a turn.
+Every failure is contained. A compaction that cannot run — the engine's durable lock is held, no safe cut exists, the summarizer errors — is logged, surfaced in the readout, and the turn continues. A context trigger is an optimization; it is never a reason to fail a turn.
 
 ### How it reaches the compaction engine
 
@@ -136,7 +144,7 @@ Two more contracts this plugin depends on:
 
 ## Configuration
 
-The same four fields can be seeded from the composition layer — the plugin's own `cordis.patch.yml`, or the profile's:
+The same six fields can be seeded from the composition layer — the plugin's own `cordis.patch.yml`, or the profile's:
 
 ```yaml
 - insert:
@@ -144,10 +152,14 @@ The same four fields can be seeded from the composition layer — the plugin's o
       name: dsh-context-compressor
       config:
         enabled: true
-        contextLimit: 120000
+        mode: absolute          # or ratio
+        contextLimit: 120000    # active when mode is absolute
+        contextRatioPercent: 80 # active when mode is ratio
         retainTokens: 20000
         maxRounds: 3
 ```
+
+`mode` is a `union([const('absolute'), const('ratio')])` rather than a bare string, so a typo is rejected at load instead of silently turning the plugin into a no-op. `contextRatioPercent` is bounded to 5–95.
 
 `id` is the **settings namespace** the page edits, not the package name. Keep them in sync if you rename it (`SETTINGS_NS` in `lib/index.js`, `SETTINGS_NS` in `lib/client.js`).
 
@@ -158,11 +170,11 @@ The same four fields can be seeded from the composition layer — the plugin's o
 ```
 package.json          name / exports["./client"] / dsh.bundle.patch / dsh.client.platform
 cordis.patch.yml      the profile composition layer: mounts the host row and seeds defaults
-lib/index.js          host half: the ceiling policy, the pre-step hook, the status route
+lib/index.js          host half: the trigger policy, the pre-step hook, the status route
 lib/client.js         browser half: the Settings page (hand-written bundle, no build step)
 locale/{en,zh}.json   the plugin inventory's title and description
 icon.svg              plugin artwork
-test/                 29 tests: policy, harness-settings conformance, browser bundle
+test/                 47 tests: policy, harness-settings conformance, browser bundle
 ```
 
 There is **no build step**. The host half is plain ESM. The browser half is written directly in the shape DSH's client module loader expects — `window.__ModuleLoader__.load({ id, factory })` — and `require`s only platform seed words (`react`, `@deepseek-ai/dsh-client-ui-primitives`), so nothing needs bundling.
@@ -175,7 +187,7 @@ There is **no build step**. The host half is plain ESM. The browser half is writ
 node --test test/host.test.mjs test/settings-projection.test.mjs test/client.test.mjs
 ```
 
-Three suites, 29 tests:
+Three suites, 47 tests:
 
 - **`host.test.mjs`** — the policy against fakes: the schema contract, balanced-cut selection, the retained tail, the system head, the prune-first path, the preset-realm resolution, failure containment, and the status route.
 - **`settings-projection.test.mjs`** — runs the **harness's own** `volatileForm` / `projectForm` / `isVolatilePath` (imported from the installed application) against this plugin's `Config`, so a schema mistake fails here instead of producing a Settings page with no controls. Set `DSH_REFERENCE_ASAR` to the extracted application to run it; it skips otherwise.
@@ -185,11 +197,12 @@ Three suites, 29 tests:
 
 ## Known limitations
 
-- **Token counts are estimates.** The meter prices the request image with a fixed-density heuristic until provider usage is available; treat the ceiling as a budget line, not an exact tokenizer count.
-- **A single oversized unit cannot be repaired.** If one retained message or request envelope exceeds the ceiling on its own, surface compaction has nothing safe to cut and the session stays over. The readout says so.
-- **The ceiling is enforced at step boundaries**, so one step can overshoot it before the next measurement lands.
+- **Token counts are estimates.** The meter prices the request image with a fixed-density heuristic until provider usage is available; treat the trigger as a budget line, not an exact tokenizer count.
+- **A single oversized unit cannot be repaired.** If one retained message or request envelope exceeds the threshold on its own, surface compaction has nothing safe to cut and the session stays over. The readout says so.
+- **The threshold is enforced at step boundaries**, so one step can overshoot it before the next measurement lands.
+- **Ratio mode depends on the model declaring its window.** Until a session has logged a `request/context` the window is unknown and the plugin stays inert; an endpoint whose declared window is wrong gets a wrong threshold — which is precisely why absolute mode exists.
 - **It needs a composition that mounts compaction.** The Desktop and web apps do; a minimal profile that never mounts the compaction stack has nothing for this plugin to drive, and it stays inert rather than failing.
-- **The browser half needs a page refresh** after install. Only the host half hot-applies.
+- **The browser half needs a page refresh** after install. Only the host half hot-applies — and after editing the plugin's own source, both need an application restart.
 
 ## License
 
