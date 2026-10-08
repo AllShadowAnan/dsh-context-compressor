@@ -36,11 +36,9 @@ DeepSeek Harness 本身就会压缩上下文，但它的策略是**写死的相�
 pnpm install
 dsh plugin --profile desktop add link:/绝对路径/dsh-context-compressor
 
-# 从 GitHub Release 安装：releases/latest 始终指向最新版
-dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/latest/download/dsh-context-compressor.tgz
-
-# 钉住某个版本（示例）
-dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/download/v1.0.1/dsh-context-compressor-1.0.1.tgz
+# 从 GitHub Release 安装：请用带版本号的 URL。
+# 到 https://github.com/AllShadowAnan/dsh-context-compressor/releases 取最新版本号
+dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/download/v1.1.0/dsh-context-compressor-1.1.0.tgz
 ```
 
 `dsh plugin` 会把参数原样转发给 `pnpm`，工作目录就是 profile 目录。由于本包同时声明了 `dsh.bundle.patch` 与 `dsh.client.platform: "web"`，同一条命令还会把 `dsh-context-compressor` 追加进 `dsh.profile.bundles`——这正是让该包成为一个 profile 组合层的关键。
@@ -73,6 +71,15 @@ $env:NODE_OPTIONS = "--use-system-ca"; dsh plugin --profile desktop add <tarball
 ```
 
 任何 `github.com` 的 `pnpm add` 都同理，不是本插件特有的问题。
+
+**用 `releases/latest/download/...` 却装到了旧版本。** pnpm 会**按 URL 缓存**远端 tarball 的解析结果，而 `releases/latest/...` 这个 URL 永远不变——于是你第一次装到哪个版本，之后就一直装那个版本，`--force` 也不会让它重新解析。所以请始终使用**带版本号的 URL**（它同时让安装可复现）。如果确实想走 latest 别名，在末尾加一个查询串即可绕过缓存：
+
+```sh
+# 任何不同的查询串都行
+dsh plugin --profile desktop add "https://github.com/AllShadowAnan/dsh-context-compressor/releases/latest/download/dsh-context-compressor.tgz?rev=2"
+```
+
+顺带一提，`releases/latest` 这个别名在**浏览器里点开**时始终是当前最新版，上面的问题只出在 pnpm 的缓存上。
 
 ### 卸载
 

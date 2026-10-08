@@ -36,11 +36,9 @@ The plugin is installed as an ordinary external profile plugin — nothing is pa
 pnpm install
 dsh plugin --profile desktop add link:/absolute/path/to/dsh-context-compressor
 
-# from a GitHub release: releases/latest always resolves to the newest one
-dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/latest/download/dsh-context-compressor.tgz
-
-# pin an exact version (example)
-dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/download/v1.0.1/dsh-context-compressor-1.0.1.tgz
+# from a GitHub release: use the versioned URL.
+# Take the current version from https://github.com/AllShadowAnan/dsh-context-compressor/releases
+dsh plugin --profile desktop add https://github.com/AllShadowAnan/dsh-context-compressor/releases/download/v1.1.0/dsh-context-compressor-1.1.0.tgz
 ```
 
 `dsh plugin` forwards to `pnpm` with the profile directory as its working directory. Because this package declares both `dsh.bundle.patch` and `dsh.client.platform: "web"`, the same command also appends `dsh-context-compressor` to `dsh.profile.bundles`, which is what makes the package a profile composition layer.
@@ -73,6 +71,15 @@ $env:NODE_OPTIONS = "--use-system-ca"; dsh plugin --profile desktop add <tarball
 ```
 
 The same applies to `pnpm add` of any `github.com` URL, and it is not specific to this plugin.
+
+**`releases/latest/download/...` installs an older version.** pnpm **caches the resolution of a remote tarball by URL**, and the `releases/latest/...` URL never changes — so whichever version you first installed from it is the one you keep getting, and `--force` does not make it re-resolve. Always use the **versioned URL**, which also makes the install reproducible. If you do want the alias, any query string busts the cache:
+
+```sh
+# any differing query string works
+dsh plugin --profile desktop add "https://github.com/AllShadowAnan/dsh-context-compressor/releases/latest/download/dsh-context-compressor.tgz?rev=2"
+```
+
+The `releases/latest` alias is always the newest release when you **click it in a browser**; the problem above is pnpm's cache alone.
 
 ### Uninstall
 
